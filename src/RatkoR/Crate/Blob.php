@@ -2,36 +2,110 @@
 
 namespace RatkoR\Crate;
 
+use GuzzleHttp\Client;
+use GuzzleHttp\Exception\ClientException;
+use Illuminate\Support\Facades\Config;
+
 class Blob
 {
+    protected static function getBaseUrl($table)
+    {
+        $config = Config::get('database.connections.crate');
+        return 'http://'.$config['host'] . ':'. $config['port'] . '/_blobs/' . $table . '/';
+    }
+
     /**
      * Uploads given file to Crate.
      *
-     * @param  string $path Path to file that will be uploaded
-     * @return string       Digest hash if upload was successfull, false otherwise
+     * @param  string $content content that will be stored
+     * @return string|boolean       Digest hash if store was successfull, false otherwise
      */
-    public static function upload($path, $table = 'myblobs')
+    public static function set($content, $table = 'myblobs')
     {
-        // TODO:
-        //  - calculate digest hash
-        //  - get crate server IP from config
-        //  - upload to crate as:
-        //        curl -isSX PUT '127.0.0.1:4200/_blobs/myblobs/4a756ca07e9487f482465a99e8286abc86ba4dc7' -d 'contents'
-        return "4a756ca07e9487f482465a99e8286abc86ba4dc7";
+        $hash = sha1($content);
+        $url = self::getBaseUrl($table) . $hash;
+        $client = new Client();
+        $response = null;
+        try {
+            $client->put($url, ['body' => $content]);
+        } catch (ClientException $ce) {
+            if ($ce->getCode() == 409) {
+                return $hash;
+            }
+            return false;
+        } catch (\Exception $e) {
+
+            return false;
+        }
+
+        return $hash;
     }
 
     /**
      * Downloads file with given digest hash
      *
-     * @šaram string  $hash Digest hash of the file that needs to be downloaded
+     * @param string  $hash
+     * @param string $table
+     *
+     * @return string|boolean
      */
-    public static function download($hash)
+    public static function get($hash, $table = 'myblobs')
     {
-        // TODO:
-        //  - get crate server IP from config
-        //  - download from crate as:
-        //        curl -sS '127.0.0.1:4200/_blobs/myblobs/4a756ca07e9487f482465a99e8286abc86ba4dc7'
-        return null;
+        $url = self::getBaseUrl($table) . $hash;
+        $client = new Client();
+        try {
+            $response = $client->get($url);
+            if ($response->getStatusCode() != 200) {
+                throw new \Exception('no content found for hash: '.$hash);
+            }
+        } catch (\Exception $e) {
+            return false;
+        }
+
+        return (string)$response->getBody();
+    }
+
+
+    /**
+     * check file for given digest hash
+     *
+     * @param string  $hash
+     * @param string $table
+     *
+     * @return string|boolean
+     */
+    public static function has($hash, $table = 'myblobs')
+    {
+        $url = self::getBaseUrl($table) . $hash;
+        $client = new Client();
+        try {
+            $client->head($url);
+        } catch (\Exception $e) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * remove file for given digest hash
+     *
+     * @param string  $hash
+     * @param string $table
+     *
+     * @return boolean
+     */
+    public static function remove($hash, $table = 'myblobs')
+    {
+        $url = self::getBaseUrl($table) . $hash;
+        $client = new Client();
+        try {
+            $client->delete($url);
+        } catch (\Exception $e) {
+            return false;
+        }
+
+        return true;
     }
 
 }
