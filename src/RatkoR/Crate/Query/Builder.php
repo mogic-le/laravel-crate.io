@@ -3,6 +3,7 @@
 namespace RatkoR\Crate\Query;
 
 use Illuminate\Database\Query\Builder as BaseBuilder;
+use Illuminate\Database\Query\JoinClause;
 use RatkoR\Crate\NotImplementedException;
 use Closure;
 
@@ -34,7 +35,31 @@ class Builder extends BaseBuilder
      */
     public function join($table, $one, $operator = null, $two = null, $type = 'inner', $where = false)
     {
-        throw new NotImplementedException('Joins are not implemented in Crate');
+        $join = new JoinClause($this, $type, $table);
+
+        // If the first "column" of the join is really a Closure instance the developer
+        // is trying to build a join with a complex "on" clause containing more than
+        // one condition, so we'll add the join and call a Closure with the query.
+        if ($one instanceof Closure) {
+            call_user_func($one, $join);
+
+            $this->joins[] = $join;
+
+            $this->addBinding($join->getBindings(), 'join');
+        }
+
+        // If the column is simply a string, we can assume the join simply has a basic
+        // "on" clause with a single condition. So we will just build the join with
+        // this simple join clauses attached to it. There is not a join callback.
+        else {
+            $method = $where ? 'where' : 'on';
+
+            $this->joins[] = $join->$method($one, $operator, $two);
+
+            $this->addBinding($join->getBindings(), 'join');
+        }
+
+        return $this;
     }
 
     /**
